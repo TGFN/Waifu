@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Random Waifu - GIF & Animation</title>
+  <link rel="icon" type="image/png" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23ff4da6'/%3E%3Ctext x='50' y='70' text-anchor='middle' fill='white' font-size='50' font-family='monospace'%3E❤%3C/text%3E%3C/svg%3E">
+  <meta name="theme-color" content="#111">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(145deg, #0a0a0a, #1a1a2e, #2d1b4e);
+      background-size: 400% 400%;
+      animation: gradientShift 15s ease infinite;
+      color: #fff;
+      font-family: system-ui, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      overflow: hidden;
+    }
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    h1 {
+      margin: 20px 0;
+      font-size: clamp(1.8rem, 6vw, 2.8rem);
+      background: linear-gradient(135deg, #ffb347, #ff4da6, #ffb347);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: shimmer 3s linear infinite, float 4s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+      to { background-position: 200% center; }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .container {
+      text-align: center;
+      padding: 20px;
+      position: relative;
+      z-index: 2;
+    }
+    #waifu {
+      max-width: 90vw;
+      max-height: 70vh;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 20px rgba(255,77,166,0.3);
+      object-fit: contain;
+      background: #0f0f12;
+      transition: opacity 0.35s ease, transform 0.35s ease;
+    }
+    #waifu.loaded {
+      animation: popIn 0.45s ease;
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .loading {
+      opacity: 0.5;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 0.8; }
+    }
+    .top-buttons {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 12px;
+      z-index: 100;
+    }
+    button {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 40px;
+      background: #ff4da6;
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: 0.2s;
+    }
+    button:hover {
+      background: #ff2b8c;
+      transform: scale(1.05);
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    button.active {
+      background: #ffb347;
+      color: #111;
+    }
+    .info {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: #ccc;
+      min-height: 1.2em;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    .info.show {
+      opacity: 1;
+    }
+    .info span {
+      background: rgba(255,77,166,0.15);
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin: 0 4px;
+    }
+    .credit {
+      position: fixed;
+      bottom: 12px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 0.7rem;
+      color: #888;
+      z-index: 10;
+    }
+    /* Floating hearts animation */
+    .heart {
+      position: absolute;
+      font-size: 20px;
+      animation: floatHeart 8s linear infinite;
+      opacity: 0.6;
+      pointer-events: none;
+      z-index: 1;
+    }
+    @keyframes floatHeart {
+      0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 0.6; }
+      90% { opacity: 0.6; }
+      100% { transform: translateY(-10vh) rotate(360deg); opacity: 0; }
+    }
+    @media (max-width: 550px) {
+      .top-buttons { top: 12px; right: 12px; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      button { padding: 6px 16px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🌸 Waifu Generator 🌸</h1>
+  <img id="waifu" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23222'%3E%3C/rect%3E%3Ctext x='50' y='55' font-size='12' fill='%23aaa' text-anchor='middle'%3ELoading...%3C/text%3E%3C/svg%3E" alt="Waifu">
+  <div id="info" class="info"></div>
+</div>
+<div class="top-buttons">
+  <button id="newBtn">🔄 New</button>
+  <button id="gifBtn">🎬 GIF Mode</button>
+  <button id="downloadBtn">⬇️ Download</button>
+</div>
+<div class="credit">💖 images & GIFs from waifu.im · waifu.pics · nekos.best + fallbacks</div>
+
+<!-- Floating hearts -->
+<div id="hearts"></div>
+
+<script>
+(function() {
+  var img = document.getElementById('waifu');
+  var info = document.getElementById('info');
+  var newBtn = document.getElementById('newBtn');
+  var gifBtn = document.getElementById('gifBtn');
+  var downloadBtn = document.getElementById('downloadBtn');
+  var heartsContainer = document.getElementById('hearts');
+
+  if (!img || !newBtn || !downloadBtn || !gifBtn || !info) return;
+
+  // Create floating hearts
+  for (var i = 0; i < 12; i++) {
+    var heart = document.createElement('div');
+    heart.className = 'heart';
+    heart.textContent = ['💖','🌸','✨','💕'][Math.floor(Math.random()*4)];
+    heart.style.left = Math.random() * 100 + 'vw';
+    heart.style.animationDelay = (Math.random() * 8) + 's';
+    heart.style.animationDuration = (6 + Math.random() * 6) + 's';
+    heartsContainer.appendChild(heart);
+  }
+
+  var API_LIST = [
+    "https://api.waifu.im/search?included_tags=maid&height=%3C=1200",
+    "https://api.waifu.pics/sfw/waifu",
+    "https://nekos.best/api/v2/waifu",
+    "https://api.waifu.im/search?included_tags=waifu&height=%3C=1200"
+  ];
+
+  var GIF_CATEGORIES = [
+    "smile", "wave", "wink", "blush", "happy", "dance", "cry", "smug",
+    "nom", "poke", "lick", "glomp", "feed", "tickle", "laugh", "nya",
+    "teehee", "bored", "facepalm", "shrug", "stare", "yawn", "think"
+  ];
+
+  var FALLBACK_IMAGES = [
+    "https://nekos.best/api/v2/neko/89ad0c09-112f-4111-9b86-5131b1e6d6ca.png",
+    "https://nekos.best/api/v2/neko/bf5e4463-1458-445d-8118-9d0064dce802.png",
+    "https://nekos.best/api/v2/neko/5005b597-1181-4a23-8517-f5a6b0855b82.png",
+    "https://nekos.best/api/v2/neko/cb5efb0e-2a5a-4307-851a-cc95dfdd165a.png",
+    "https://nekos.best/api/v2/neko/25df335c-f4f9-4975-9b18-47938c55c1d1.png"
+  ];
+
+  var currentUrl = "";
+  var isLoading = false;
+  var gifMode = false;
+
+  var nextUrl = "";
+  var nextImage = null;
+  var isPreloading = false;
+
+  gifBtn.onclick = function() {
+    gifMode = !gifMode;
+    gifBtn.classList.toggle('active', gifMode);
+    gifBtn.textContent = gifMode ? "🖼️ Image Mode" : "🎬 GIF Mode";
+    newWaifu(); // refresh immediately
+  };
+
+  function extractMeta(data, apiUrl) {
+    var meta = { url: null, anime: null, width: null, height: null };
+    try {
+      if (apiUrl.indexOf('nekos.best') !== -1 && data && data.results && data.results[0]) {
+        var r = data.results[0];
+        meta.url = r.url || null;
+        meta.anime = r.anime_name || null;
+        if (r.dimensions) {
+          meta.width = r.dimensions.width || null;
+          meta.height = r.dimensions.height || null;
+        }
+      } else if (apiUrl.indexOf('waifu.im') !== -1 && data && data.images && data.images[0]) {
+        meta.url = data.images[0].url || null;
+      } else if (apiUrl.indexOf('waifu.pics') !== -1 && data && data.url) {
+        meta.url = data.url;
+      }
+    } catch(e) {}
+    return meta;
+  }
+
+  function fetchTimeout(url, ms) {
+    ms = ms || 5000;
+    return new Promise(function(resolve, reject) {
+      var timer = setTimeout(function() { reject(new Error('Timeout')); }, ms);
+      fetch(url).then(function(res) {
+        clearTimeout(timer);
+        resolve(res);
+      }).catch(function(err) {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
+  async function fetchImageUrl() {
+    var urlsToTry = [];
+    if (gifMode) {
+      var shuffledCats = GIF_CATEGORIES.slice();
+      for (var i = shuffledCats.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = shuffledCats[i];
+        shuffledCats[i] = shuffledCats[j];
+        shuffledCats[j] = tmp;
+      }
+      for (var k = 0; k < Math.min(6, shuffledCats.length); k++) {
+        urlsToTry.push("https://nekos.best/api/v2/" + shuffledCats[k]);
+      }
+    } else {
+      urlsToTry = API_LIST.slice();
+      if (Math.random() < 0.2) {
+        var cat = GIF_CATEGORIES[Math.floor(Math.random() * GIF_CATEGORIES.length)];
+        urlsToTry.unshift("https://nekos.best/api/v2/" + cat);
+      }
+      for (var i = urlsToTry.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = urlsToTry[i];
+        urlsToTry[i] = urlsToTry[j];
+        urlsToTry[j] = tmp;
+      }
+    }
+
+    // Race parallel fetches for speed — return the FIRST successful one
+    var parallel = urlsToTry.slice(0, 5);
+    var promises = parallel.map(function(apiUrl) {
+      return fetchTimeout(apiUrl, 1800).then(function(res) {
+        if (!res.ok) throw new Error("bad");
+        return res.json().then(function(data) {
+          var meta = extractMeta(data, apiUrl);
+          if (meta.url && meta.url.indexOf('http') === 0) {
+            if (gifMode && meta.url.toLowerCase().indexOf('.gif') === -1) throw new Error("not gif");
+            return meta;
+          }
+          throw new Error("no url");
+        });
+      }).catch(function() { return null; });
+    });
+
+    // Use race-like: return as soon as first valid result arrives
+    var result = await Promise.any(promises.map(function(p) {
+      return p.then(function(meta) {
+        if (meta && meta.url) return meta;
+        throw new Error("null");
+      });
+    })).catch(function() { return null; });
+
+    if (result) return result;
+
+    // Fallback sequential if all parallel failed
+    for (var idx = 5; idx < urlsToTry.length; idx++) {
+      var apiUrl = urlsToTry[idx];
+      try {
+        var res = await fetchTimeout(apiUrl, 1500);
+        if (!res.ok) continue;
+        var data = await res.json();
+        var meta = extractMeta(data, apiUrl);
+        if (meta.url && meta.url.indexOf('http') === 0) {
+          if (gifMode && meta.url.toLowerCase().indexOf('.gif') === -1) continue;
+          return meta;
+        }
+      } catch(e) {}
+    }
+    return { url: FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)], anime: null, width: null, height: null };
+  }
+
+  function preloadImage(url) {
+    if (!url) return Promise.reject();
+    return new Promise(function(resolve, reject) {
+      var temp = new Image();
+      temp.crossOrigin = "Anonymous";
+      temp.onload = function() { resolve(temp); };
+      temp.onerror = function() { reject(); };
+      var separator = url.indexOf('?') === -1 ? '?' : '&';
+      temp.src = url + separator + '_pre=' + Date.now();
+    });
+  }
+
+  async function startPreload() {
+    if (isPreloading) return;
+    isPreloading = true;
+    try {
+      var meta = await fetchImageUrl();
+      if (meta && meta.url && meta.url !== currentUrl && meta.url !== nextUrl) {
+        var loaded = await preloadImage(meta.url);
+        if (loaded) {
+          nextUrl = meta.url;
+          nextImage = loaded;
+        }
+      }
+    } catch(e) {} finally {
+      isPreloading = false;
+    }
+  }
+
+  function showInfo(meta) {
+    if (!info) return;
+    var parts = [];
+    if (meta && meta.anime) parts.push('<span>📺 ' + meta.anime + '</span>');
+    if (meta && meta.width && meta.height) parts.push('<span>📐 ' + meta.width + '×' + meta.height + '</span>');
+    if (parts.length === 0) {
+      // Fallback source label when no meta
+      var src = 'Unknown';
+      if (currentUrl && currentUrl.indexOf('nekos.best') !== -1) src = 'nekos.best';
+      else if (currentUrl && currentUrl.indexOf('waifu.im') !== -1) src = 'waifu.im';
+      else if (currentUrl && currentUrl.indexOf('waifu.pics') !== -1) src = 'waifu.pics';
+      parts.push('<span>📷 ' + src + '</span>');
+    }
+    info.innerHTML = parts.join(' ');
+    info.classList.remove('show');
+    // force reflow then show for fade animation
+    void info.offsetWidth;
+    info.classList.add('show');
+  }
+
+  async function displayImage(url, usePreload, meta) {
+    if (!url) return false;
+    showInfo(meta || {});
+    img.classList.remove('loaded');
+    if (usePreload && nextUrl === url && nextImage) {
+      img.src = nextImage.src;
+      nextUrl = "";
+      nextImage = null;
+      img.alt = "Waifu artwork";
+      if (img.decode) await img.decode();
+      void img.offsetWidth;
+      img.classList.add('loaded');
+      return true;
+    } else {
+      return new Promise(function(resolve) {
+        var temp = new Image();
+        temp.crossOrigin = "Anonymous";
+        temp.onload = async function() {
+          img.src = temp.src;
+          img.alt = "Waifu artwork";
+          if (img.decode) await img.decode();
+          void img.offsetWidth;
+          img.classList.add('loaded');
+          resolve(true);
+        };
+        temp.onerror = function() { resolve(false); };
+        var sep = url.indexOf('?') === -1 ? '?' : '&';
+        temp.src = url + sep + '_cb=' + Date.now();
+      });
+    }
+  }
+
+  async function newWaifu() {
+    if (isLoading) return;
+    isLoading = true;
+    img.classList.add('loading');
+    newBtn.disabled = true;
+    downloadBtn.disabled = true;
+    gifBtn.disabled = true;
+
+    try {
+      var meta = null;
+      var usedPreload = false;
+
+      if (nextUrl && nextImage && nextUrl !== currentUrl) {
+        meta = { url: nextUrl };
+        usedPreload = true;
+      } else {
+        meta = await fetchImageUrl();
+      }
+
+      if (!meta || !meta.url) throw new Error("No image URL");
+      if (meta.url === currentUrl) {
+        meta = await fetchImageUrl();
+        if (!meta || meta.url === currentUrl) {
+          meta = { url: FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)] };
+        }
+      }
+
+      var success = await displayImage(meta.url, usedPreload, meta);
+      if (!success) throw new Error("Display failed");
+      currentUrl = meta.url;
+
+      startPreload().catch(function(e) { console.warn("preload error", e); });
+    } catch(err) {
+      console.error(err);
+      var fallbackUrl = FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)];
+      await displayImage(fallbackUrl, false, {});
+      currentUrl = fallbackUrl;
+    } finally {
+      isLoading = false;
+      img.classList.remove('loading');
+      newBtn.disabled = false;
+      downloadBtn.disabled = false;
+      gifBtn.disabled = false;
+    }
+  }
+
+  function downloadImage() {
+    if (!currentUrl) return;
+    var proxy = "https://proxydownload.onrender.com/download?url=";
+    window.open(proxy + encodeURIComponent(currentUrl), "_blank");
+  }
+
+  newBtn.onclick = newWaifu;
+  downloadBtn.onclick = downloadImage;
+
+  // Start preload immediately for faster next loads
+  startPreload();
+  newWaifu();
+})();
+</script>
+</body>
+</html>
