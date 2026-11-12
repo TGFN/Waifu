@@ -20,6 +20,10 @@ MAX_SIZE = 20 * 1024 * 1024          # 20MB
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 30
 CHUNK_SIZE = 8192
+
+# Bind ra LAN
+HOST = "0.0.0.0"
+PORT = 5000
 # ==============================================
 
 
@@ -30,7 +34,6 @@ def is_safe_url(url: str) -> bool:
         if p.scheme not in ("http", "https") or not p.hostname:
             return False
 
-        # resolve tất cả IP (IPv4 + IPv6) để tránh bypass qua record phụ
         infos = socket.getaddrinfo(p.hostname, None)
         for info in infos:
             ip = ipaddress.ip_address(info[4][0])
@@ -53,6 +56,18 @@ def short_ts() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+def lan_ip() -> str:
+    """Lấy IP LAN của máy (không cần internet, dùng UDP socket)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 @app.route("/download")
 def download():
     url = request.args.get("url")
@@ -67,7 +82,7 @@ def download():
             url,
             stream=True,
             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
-            allow_redirects=False,          # tránh bypass SSRF qua redirect
+            allow_redirects=False,
             headers={"User-Agent": "waifu-downloader/1.0"},
         )
     except requests.RequestException:
@@ -82,7 +97,6 @@ def download():
         r.close()
         return "Unsupported content type", 400
 
-    # filename có timestamp short
     filename = f"waifu_{short_ts()}.{ALLOWED[mime]}"
 
     def generate():
@@ -110,9 +124,16 @@ def download():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000)
+    ip = lan_ip()
+    print("=" * 50)
+    print(f"[server] started at {short_ts()}")
+    print(f"[local]  http://127.0.0.1:{PORT}")
+    print(f"[LAN]    http://{ip}:{PORT}")
+    print(f"[test]   http://{ip}:{PORT}/download?url=<image_url>")
+    print("=" * 50)
+    app.run(host=HOST, port=PORT)
 
 
 # ================== TIMESTAMP SHORT (cuối file) ==================
 if __name__ == "__main__":
-    print(f"[server] started at {short_ts()}")
+    pass  # timestamp đã in ở trên
