@@ -29,7 +29,7 @@ MAX_IMAGE_SIZE = 20 * 1024 * 1024       # 20 MB
 MAX_VIDEO_SIZE = 200 * 1024 * 1024      # 200 MB
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 60
-CHUNK_SIZE = 64 * 1024                  # 64KB chunk for video throughput
+CHUNK_SIZE = 64 * 1024
 
 HOST = "0.0.0.0"
 PORT = 5000
@@ -42,18 +42,101 @@ _hits = defaultdict(list)
 # ============================================
 
 
+# ================== SELF-IP DETECTION ==================
+def get_own_ips() -> set:
+    """
+    Tá»± dĂ² táº¥t cáº£ IP cá»§a mĂ¡y cháº¡y proxy:
+    - loopback (127.0.0.1, ::1)
+    - IP LAN qua UDP trick
+    - IP tá»« hostname resolve
+    """
+    ips = {"127.0.0.1", "::1"}
+
+    # IP LAN chĂ­nh (UDP trick, khĂ´ng cáº§n internet tháº­t)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+
+    # Táº¥t cáº£ IP tá»« hostname
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None):
+            ips.add(info[4][0])
+    except Exception:
+        pass
+
+    # IPv6 loopback + interface riĂªng
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET6):
+            ips.add(info[4][0])
+    except Exception:
+        pass
+
+    return ips
+
+
+OWN_IPS = get_own_ips()
+
+
+# Cloud metadata endpoints â€” LUĂ”N cháº·n
+BLOCKED_METADATA = {
+    ipaddress.ip_address("169.254.169.254"),      # AWS / GCP / Azure / OpenStack
+    ipaddress.ip_address("100.100.100.200"),      # Alibaba Cloud
+    ipaddress.ip_address("fd00:ec2::254"),        # AWS IPv6
+}
+# =========================================================
+
+
 # ================== HELPERS ==================
-def is_safe_url(url: str) -> bool:
+def is_safe_url(url: str, allow_lan: bool = True) -> bool:
+    """
+    Kiá»ƒm tra URL an toĂ n:
+    - Chá»‰ http/https
+    - LUĂ”N cháº·n: metadata cloud, link-local, loopback, chĂ­nh mĂ¡y proxy
+    - allow_lan=True  â†’ cho phĂ©p private IP (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+                        miá»…n KHĂ”NG pháº£i self
+    - allow_lan=False â†’ cháº·n má»i private IP
+    """
     try:
         p = urlparse(url)
         if p.scheme not in ("http", "https") or not p.hostname:
             return False
+
         infos = socket.getaddrinfo(p.hostname, None)
         for info in infos:
-            ip = ipaddress.ip_address(info[4][0])
-            if (ip.is_private or ip.is_loopback or ip.is_link_local
-                    or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            ip_str = info[4][0]
+            ip = ipaddress.ip_address(ip_str)
+
+            # 1. Metadata cloud â€” luĂ´n cháº·n
+            if ip in BLOCKED_METADATA:
                 return False
+
+            # 2. Link-local (169.254.0.0/16, fe80::/10)
+            if ip.is_link_local:
+                return False
+
+            # 3. Loopback (127.0.0.0/8, ::1)
+            if ip.is_loopback:
+                return False
+
+            # 4. ChĂ­nh mĂ¡y proxy (má»i IP cá»§a nĂ³)
+            if ip_str in OWN_IPS:
+                return False
+
+            # 5. Private IP
+            if ip.is_private:
+                if not allow_lan:
+                    return False
+                continue  # allow_lan=True â†’ cho phĂ©p
+
+            # 6. Reserved / multicast / unspecified
+            if ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+                return False
+
         return True
     except Exception:
         return False
@@ -104,7 +187,7 @@ INDEX_HTML = r"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Proxy Download — Glitch</title>
+<title>Proxy Download â€” Glitch</title>
 <style>
   :root{--bg:#0b0b0d;--fg:#d6d3d1;--pink:#ff2e88;--cyan:#00e5ff;--dim:#8a8a8a}
   *{box-sizing:border-box}
@@ -172,6 +255,9 @@ INDEX_HTML = r"""
     background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
     color:var(--dim);letter-spacing:.05em}
   .limits span b{color:var(--fg)}
+  .toggle{display:flex;align-items:center;gap:8px;margin-top:12px;
+    font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--pink)}
   footer{position:relative;z-index:3;font-size:11px;opacity:.35;
     letter-spacing:.2em;text-transform:uppercase}
   a{color:var(--cyan)}
@@ -185,7 +271,7 @@ INDEX_HTML = r"""
   <div class="glitch" data-text="PROXY DOWNLOAD">PROXY DOWNLOAD</div>
 
   <div class="card">
-    <h2>Download via Proxy <span class="badge">v2</span></h2>
+    <h2>Download via Proxy <span class="badge">v3</span></h2>
     <p>
       Paste any image or video URL. The server fetches it and returns
       the file with a short timestamp: <code>waifu_YYYYMMDD-HHMMSS.ext</code>
@@ -195,12 +281,16 @@ INDEX_HTML = r"""
       <button onclick="go()">Download</button>
       <a class="btn" href="/docs">API Docs</a>
     </div>
+    <label class="toggle">
+      <input type="checkbox" id="lan" checked>
+      Allow LAN / DuckDNS â†’ private IP (self IP &amp; metadata still blocked)
+    </label>
     <div class="out" id="o"></div>
     <div class="limits">
-      <span>Images <b>≤ 20MB</b></span>
-      <span>Videos <b>≤ 200MB</b></span>
+      <span>Images <b>â‰¤ 20MB</b></span>
+      <span>Videos <b>â‰¤ 200MB</b></span>
       <span>Rate <b>60/min</b></span>
-      <span>SSRF <b>protected</b></span>
+      <span>SSRF <b>auto-detect self</b></span>
     </div>
   </div>
 
@@ -209,10 +299,11 @@ INDEX_HTML = r"""
 <script>
 function go(){
   const u = document.getElementById('u').value.trim();
+  const lan = document.getElementById('lan').checked ? '1' : '0';
   const o = document.getElementById('o');
   if(!u){ o.textContent = 'Enter a URL first.'; return; }
-  const link = '/download?url=' + encodeURIComponent(u);
-  o.innerHTML = '→ <a href="'+link+'" target="_blank">'+link+'</a>';
+  const link = '/download?url=' + encodeURIComponent(u) + '&lan=' + lan;
+  o.innerHTML = 'â†’ <a href="'+link+'" target="_blank">'+link+'</a>';
   window.location.href = link;
 }
 </script>
@@ -237,7 +328,10 @@ def download():
     url = request.args.get("url")
     if not url:
         return "No URL", 400
-    if not is_safe_url(url):
+
+    # lan=1 (default) â†’ cho phĂ©p private IP, miá»…n khĂ´ng pháº£i self
+    allow_lan = request.args.get("lan", "0") != "0"
+    if not is_safe_url(url, allow_lan=allow_lan):
         return "Invalid or unsafe URL", 400
 
     try:
@@ -245,7 +339,7 @@ def download():
             url, stream=True,
             timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
             allow_redirects=False,
-            headers={"User-Agent": "waifu-downloader/2.0"},
+            headers={"User-Agent": "waifu-downloader/3.0"},
         )
     except requests.RequestException:
         return "Failed to fetch file", 502
@@ -262,7 +356,7 @@ def download():
     is_video = mime in ALLOWED_VIDEO
     limit = MAX_VIDEO_SIZE if is_video else MAX_IMAGE_SIZE
 
-    # Optional: reject early if Content-Length is known and too large
+    # Reject early if Content-Length known & too large
     try:
         cl = int(r.headers.get("Content-Length", "0"))
         if cl and cl > limit:
@@ -292,7 +386,6 @@ def download():
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-store",
     }
-    # For video, advertise the known size (if upstream gave it) so player shows progress
     if is_video and r.headers.get("Content-Length"):
         headers["Content-Length"] = r.headers["Content-Length"]
 
@@ -315,7 +408,7 @@ def glitch_render():
 
     try:
         r = requests.get(target, timeout=(8, 30), stream=True,
-                         headers={"User-Agent": "waifu-proxy/2.0"})
+                         headers={"User-Agent": "waifu-proxy/3.0"})
     except requests.RequestException:
         return "Glitch render failed", 502
 
@@ -352,7 +445,7 @@ DOCS_HTML = r"""
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>API Docs — Proxy Download</title>
+<title>API Docs â€” Proxy Download</title>
 <style>
   :root{--bg:#0b0b0d;--fg:#d6d3d1;--pink:#ff2e88;--cyan:#00e5ff;--dim:#8a8a8a}
   *{box-sizing:border-box}
@@ -383,27 +476,32 @@ DOCS_HTML = r"""
   li{margin:4px 0;font-size:13.5px;opacity:.85}
   .pill{display:inline-block;font-size:10px;padding:2px 8px;border-radius:99px;
     background:rgba(255,46,136,.15);color:var(--pink);letter-spacing:.1em;margin-left:8px}
+  .ok{color:#4ade80}.no{color:#ff4d6d}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <a class="back" href="/">← back to home</a>
+  <a class="back" href="/">â† back to home</a>
 
-  <h1>API <span class="g">Docs</span> <span class="pill">v2</span></h1>
-  <p>Proxy Download — fetch images and videos through the server, plus glitch text GIFs.</p>
+  <h1>API <span class="g">Docs</span> <span class="pill">v3</span></h1>
+  <p>Proxy Download â€” fetch images and videos through the server, plus glitch text GIFs.</p>
 
   <!-- ============ DOWNLOAD ============ -->
   <h2>1. Download Proxy</h2>
   <p>Fetches a file from an external URL. Returned filename includes a short timestamp.</p>
 
   <h3>Endpoint</h3>
-  <pre>GET /download?url=&lt;URL&gt;</pre>
+  <pre>GET /download?url=&lt;URL&gt;&amp;lan=1</pre>
 
   <h3>Parameters</h3>
   <table>
-    <tr><th>Name</th><th>Required</th><th>Description</th></tr>
-    <tr><td><code>url</code></td><td>yes</td><td>Image or video URL (http/https). Must be URL-encoded.</td></tr>
+    <tr><th>Name</th><th>Default</th><th>Description</th></tr>
+    <tr><td><code>url</code></td><td>â€”</td><td>Image or video URL (http/https). Required. URL-encode it.</td></tr>
+    <tr><td><code>lan</code></td><td><code>1</code></td><td>
+      <code>1</code> = allow private/LAN IPs (DuckDNS â†’ NAS, etc.), still blocks self IP &amp; cloud metadata.<br>
+      <code>0</code> = strict public-only (block all private IPs).
+    </td></tr>
   </table>
 
   <h3>Supported types &amp; limits</h3>
@@ -419,12 +517,25 @@ DOCS_HTML = r"""
     <tr><td>Video</td><td><code>video/quicktime</code></td><td>mov</td></tr>
   </table>
 
+  <h3>SSRF protection (auto-detect)</h3>
+  <p>The server auto-detects its own IPs at startup and never lets a request reach itself.</p>
+  <table>
+    <tr><th>Target</th><th>lan=1</th><th>lan=0</th><th>Reason</th></tr>
+    <tr><td>Public IP / domain</td><td class="ok">allow</td><td class="ok">allow</td><td>Normal</td></tr>
+    <tr><td>192.168.x.x / 10.x.x.x / 172.16-31.x.x</td><td class="ok">allow</td><td class="no">block</td><td>LAN (DuckDNS â†’ NAS)</td></tr>
+    <tr><td>Proxy's own IPs (auto-detected)</td><td class="no">block</td><td class="no">block</td><td>Prevent self-request</td></tr>
+    <tr><td>127.0.0.0/8 / ::1</td><td class="no">block</td><td class="no">block</td><td>Loopback</td></tr>
+    <tr><td>169.254.0.0/16 / fe80::/10</td><td class="no">block</td><td class="no">block</td><td>Link-local</td></tr>
+    <tr><td>169.254.169.254 (AWS/GCP/Azure)</td><td class="no">block</td><td class="no">block</td><td>Cloud metadata</td></tr>
+    <tr><td>100.100.100.200 (Alibaba)</td><td class="no">block</td><td class="no">block</td><td>Cloud metadata</td></tr>
+  </table>
+
   <h3>Limits</h3>
   <ul>
     <li>Rate limit: <b>60 requests / 60s / IP</b></li>
     <li>Timeout: connect 5s, read 60s</li>
-    <li>SSRF protected — private IP, loopback, link-local, reserved are blocked</li>
-    <li>If upstream sends <code>Content-Length</code>, files exceeding the limit are rejected with <b>413</b> before download</li>
+    <li>If upstream sends <code>Content-Length</code> exceeding the limit â†’ rejected with <b>413</b> before download</li>
+    <li>Only <code>http</code> and <code>https</code> schemes are accepted</li>
   </ul>
 
   <h3>Response headers</h3>
@@ -437,19 +548,25 @@ Cache-Control: no-store</pre>
   <h3>Status codes</h3>
   <table>
     <tr><th>Code</th><th>Meaning</th></tr>
-    <tr><td>200</td><td>OK — streaming the file</td></tr>
-    <tr><td>400</td><td>Missing / unsafe URL, or unsupported content type</td></tr>
+    <tr><td>200</td><td>OK â€” streaming the file</td></tr>
+    <tr><td>400</td><td>Missing/unsafe URL, or unsupported content type</td></tr>
     <tr><td>413</td><td>File exceeds size limit</td></tr>
     <tr><td>429</td><td>Rate limit exceeded</td></tr>
     <tr><td>502</td><td>Upstream fetch failed</td></tr>
   </table>
 
   <h3>Examples</h3>
-  <pre># Image
+  <pre># Public image
 curl -OJ "http://localhost:5000/download?url=https://example.com/cat.png"
 
-# Video (up to 200MB)
+# Public video (up to 200MB)
 curl -OJ "http://localhost:5000/download?url=https://example.com/clip.mp4"
+
+# DuckDNS â†’ LAN NAS (lan=1 default)
+curl -OJ "http://localhost:5000/download?url=http://myhome.duckdns.org:8080/clip.mp4"
+
+# Strict public-only
+curl -OJ "http://localhost:5000/download?url=https://example.com/cat.png&amp;lan=0"
 
 # In &lt;video&gt;
 &lt;video src="http://localhost:5000/download?url=https://example.com/clip.mp4" controls&gt;&lt;/video&gt;</pre>
@@ -457,25 +574,25 @@ curl -OJ "http://localhost:5000/download?url=https://example.com/clip.mp4"
   <!-- ============ GLITCH ============ -->
   <h2>2. Glitch Render</h2>
   <p>Proxy to <a href="https://gor-mez8.onrender.com" target="_blank">gor-mez8.onrender.com</a>
-     — generates glitchy text GIFs. Query string is forwarded as-is.</p>
+     â€” generates glitchy text GIFs. Query string is forwarded as-is.</p>
 
   <h3>Endpoints</h3>
-  <pre>GET /render.gif?text=...&amp;effect=...   (recommended — works with Discord)
+  <pre>GET /render.gif?text=...&amp;effect=...   (recommended â€” works with Discord)
 GET /render?text=...&amp;effect=...       (alias)
 GET /fonts                            (list available fonts)</pre>
 
   <h3>Parameters</h3>
   <table>
     <tr><th>Name</th><th>Default</th><th>Description</th></tr>
-    <tr><td><code>text</code></td><td>—</td><td>Text content; use <code>+</code> or <code>%20</code> for spaces</td></tr>
+    <tr><td><code>text</code></td><td>â€”</td><td>Text content; use <code>+</code> or <code>%20</code> for spaces</td></tr>
     <tr><td><code>effect</code></td><td>vhs</td><td>vhs, static, dropout, rgb, flicker, ghost, roll, glitch, type, scan, wave, slice, invert, pixelate, bloom, shake, zoom</td></tr>
     <tr><td><code>font</code></td><td>monobold</td><td>See <code>/fonts</code></td></tr>
-    <tr><td><code>w</code></td><td>520</td><td>width, 16–800</td></tr>
-    <tr><td><code>h</code></td><td>60</td><td>height, 16–400</td></tr>
-    <tr><td><code>size</code></td><td>h−20</td><td>font size in px (min 12)</td></tr>
+    <tr><td><code>w</code></td><td>520</td><td>width, 16â€“800</td></tr>
+    <tr><td><code>h</code></td><td>60</td><td>height, 16â€“400</td></tr>
+    <tr><td><code>size</code></td><td>hâˆ’20</td><td>font size in px (min 12)</td></tr>
     <tr><td><code>c1</code></td><td>ff2e88</td><td>text color, hex without #</td></tr>
     <tr><td><code>bg</code></td><td>transparent</td><td>background hex or <code>transparent</code></td></tr>
-    <tr><td><code>fps</code></td><td>15</td><td>2–30</td></tr>
+    <tr><td><code>fps</code></td><td>15</td><td>2â€“30</td></tr>
     <tr><td><code>dur</code></td><td>2.5</td><td>seconds, max 10 (max 120 frames)</td></tr>
     <tr><td><code>seed</code></td><td>random</td><td><b>Always set</b> to reuse cache (e.g. <code>seed=7</code>)</td></tr>
   </table>
@@ -492,7 +609,7 @@ GET /fonts                            (list available fonts)</pre>
   <h3>Notes</h3>
   <ul>
     <li>Always set <code>seed</code> so the server reuses cached GIFs.</li>
-    <li>First render is slower — hit the URL once before embedding.</li>
+    <li>First render is slower â€” hit the URL once before embedding.</li>
     <li>Render free tier sleeps after ~15 min of no traffic.</li>
     <li>Discord: use the <code>/render.gif</code> URL (with .gif extension).</li>
   </ul>
@@ -507,7 +624,7 @@ GET /fonts                            (list available fonts)</pre>
   </table>
 
   <p style="margin-top:40px;opacity:.4;font-size:12px">
-    Proxy Download · glitch effects · <span id="ts"></span>
+    Proxy Download Â· glitch effects Â· <span id="ts"></span>
   </p>
 </div>
 <script>document.getElementById('ts').textContent=new Date().toISOString().slice(0,16).replace('T',' ');</script>
@@ -525,11 +642,12 @@ def docs():
 # ================== MAIN ==================
 if __name__ == "__main__":
     ip = lan_ip()
-    print("=" * 60)
-    print(f"[server] started at {short_ts()}")
-    print(f"[local]  http://127.0.0.1:{PORT}")
-    print(f"[LAN]    http://{ip}:{PORT}")
-    print(f"[docs]   http://{ip}:{PORT}/docs")
-    print(f"[limit]  images 20MB | videos 200MB | rate 60/min")
-    print("=" * 60)
+    print("=" * 64)
+    print(f"[server]  started at {short_ts()}")
+    print(f"[local]   http://127.0.0.1:{PORT}")
+    print(f"[LAN]     http://{ip}:{PORT}")
+    print(f"[docs]    http://{ip}:{PORT}/docs")
+    print(f"[limit]   images 20MB | videos 200MB | rate 60/min")
+    print(f"[self-ip] {sorted(OWN_IPS)}")
+    print("=" * 64)
     app.run(host=HOST, port=PORT)
